@@ -122,7 +122,6 @@
             height: 100%;
             background: linear-gradient(90deg, #28a745, #667eea, #764ba2);
             width: 0%;
-            transition: width 0.3s ease;
             animation: loading-animation 2s ease-in-out infinite;
         }
 
@@ -213,6 +212,11 @@
             font-weight: 500;
         }
 
+        .iframe-container {
+            position: relative;
+            flex: 1;
+        }
+
         @media (max-width: 768px) {
             .quick-links {
                 flex-wrap: wrap;
@@ -266,7 +270,7 @@
                 <span class="feature-tag">✓ Access Any Website</span>
             </div>
         </div>
-        <div style="position: relative; flex: 1;">
+        <div class="iframe-container">
             <div class="loading-indicator" id="loadingIndicator">
                 <div class="spinner"></div>
                 <p>Loading content...</p>
@@ -285,6 +289,11 @@
         function showLoading() {
             loadingBarContainer.classList.add('active');
             loadingIndicator.classList.add('active');
+            
+            // Auto-hide after 10 seconds as fallback in case load event doesn't fire
+            setTimeout(() => {
+                hideLoading();
+            }, 10000);
         }
 
         // Hide loading indicators
@@ -295,12 +304,10 @@
 
         // Listen for iframe load events
         proxyFrame.addEventListener('load', function() {
-            hideLoading();
-        });
-
-        // Listen for iframe error events
-        proxyFrame.addEventListener('error', function() {
-            hideLoading();
+            // Small delay to ensure content is rendered
+            setTimeout(() => {
+                hideLoading();
+            }, 300);
         });
 
         // Load URL on Enter key
