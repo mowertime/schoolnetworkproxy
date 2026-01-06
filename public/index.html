@@ -232,9 +232,13 @@
             
             // Add protocol if missing
             if (!url.match(/^https?:\/\//i)) {
+                // Don't modify localhost or IP addresses
+                if (url.startsWith('localhost') || url.match(/^\d+\.\d+\.\d+\.\d+(:\d+)?/)) {
+                    url = 'http://' + url;
+                }
                 // Check if it looks like a simple domain without extension
                 // e.g., "youtube" should become "youtube.com"
-                if (!url.includes('.') && !url.includes(':')) {
+                else if (!url.includes('.') && !url.includes(':')) {
                     // Common sites shorthand
                     const commonSites = {
                         'youtube': 'youtube.com',
@@ -246,8 +250,10 @@
                         'reddit': 'reddit.com'
                     };
                     url = commonSites[url.toLowerCase()] || url + '.com';
+                    url = 'https://' + url;
+                } else {
+                    url = 'https://' + url;
                 }
-                url = 'https://' + url;
             }
             
             // Ensure proper domain format

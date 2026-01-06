@@ -14,7 +14,6 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.2.1",
-    "http-proxy-middleware": "^3.0.5",
-    "node-fetch": "^3.3.2"
+    "http-proxy-middleware": "^3.0.5"
   }
 }

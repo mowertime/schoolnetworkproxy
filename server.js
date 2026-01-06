@@ -73,7 +73,6 @@ app.use('/fetch', async (req, res) => {
   }
   
   try {
-    const fetch = (await import('node-fetch')).default;
     const response = await fetch(targetUrl, {
       method: req.method,
       headers: {
