@@ -232,16 +232,8 @@
             // Use fetch endpoint for better compatibility
             const proxyUrl = `/fetch?url=${encodeURIComponent(url)}`;
             
-            // Try to load in iframe first
+            // Try to load in iframe
             proxyFrame.src = proxyUrl;
-            
-            // If iframe loading fails, open in new tab
-            proxyFrame.onerror = function() {
-                const newWindow = window.open(proxyUrl, '_blank');
-                if (!newWindow) {
-                    alert('Please allow pop-ups for this site to open the proxied page in a new tab.');
-                }
-            };
         }
 
         // Load Google by default on page load

@@ -6,6 +6,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Common User-Agent string to mimic legitimate browser traffic
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+
 // Enable CORS for all routes
 app.use(cors());
 
@@ -32,15 +35,16 @@ app.use('/proxy', createProxyMiddleware({
     proxyReq.removeHeader('referer');
     
     // Set headers to mimic a regular browser request
-    proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+    proxyReq.setHeader('User-Agent', USER_AGENT);
   },
   onProxyRes: (proxyRes, req, res) => {
-    // Remove security headers that might block content
+    // Note: Removing security headers is necessary for proxy functionality
+    // but introduces security risks. Use only in controlled environments.
     delete proxyRes.headers['content-security-policy'];
     delete proxyRes.headers['x-frame-options'];
     delete proxyRes.headers['x-content-type-options'];
     
-    // Enable CORS
+    // Enable CORS (required for proxy to function)
     proxyRes.headers['access-control-allow-origin'] = '*';
     proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
     proxyRes.headers['access-control-allow-headers'] = '*';
@@ -73,7 +77,7 @@ app.use('/fetch', async (req, res) => {
     const response = await fetch(targetUrl, {
       method: req.method,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': USER_AGENT,
         'Accept': '*/*'
       }
     });
@@ -98,6 +102,9 @@ app.use('/fetch', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`School Network Proxy running on http://localhost:${PORT}`);
-  console.log(`Open your browser and navigate to http://localhost:${PORT}`);
+  const env = process.env.NODE_ENV || 'development';
+  console.log(`School Network Proxy running on port ${PORT}`);
+  if (env === 'development') {
+    console.log(`Access at: http://localhost:${PORT}`);
+  }
 });
