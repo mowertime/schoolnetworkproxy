@@ -284,22 +284,40 @@
         const proxyFrame = document.getElementById('proxyFrame');
         const loadingBarContainer = document.getElementById('loadingBarContainer');
         const loadingIndicator = document.getElementById('loadingIndicator');
+        
+        // Loading configuration constants
+        const LOADING_TIMEOUT = 10000; // 10 seconds fallback timeout
+        const RENDER_DELAY = 300; // 300ms delay for content rendering
+        
+        // Track the current timeout
+        let loadingTimeout = null;
 
         // Show loading indicators
         function showLoading() {
             loadingBarContainer.classList.add('active');
             loadingIndicator.classList.add('active');
             
-            // Auto-hide after 10 seconds as fallback in case load event doesn't fire
-            setTimeout(() => {
+            // Clear any existing timeout
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+            }
+            
+            // Auto-hide after timeout as fallback in case load event doesn't fire
+            loadingTimeout = setTimeout(() => {
                 hideLoading();
-            }, 10000);
+            }, LOADING_TIMEOUT);
         }
 
         // Hide loading indicators
         function hideLoading() {
             loadingBarContainer.classList.remove('active');
             loadingIndicator.classList.remove('active');
+            
+            // Clear the timeout
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+                loadingTimeout = null;
+            }
         }
 
         // Listen for iframe load events
@@ -307,7 +325,7 @@
             // Small delay to ensure content is rendered
             setTimeout(() => {
                 hideLoading();
-            }, 300);
+            }, RENDER_DELAY);
         });
 
         // Load URL on Enter key
