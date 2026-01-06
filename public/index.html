@@ -102,6 +102,81 @@
             width: 100%;
         }
 
+        /* Loading bar styles */
+        .loading-bar-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            z-index: 9999;
+            display: none;
+        }
+
+        .loading-bar-container.active {
+            display: block;
+        }
+
+        .loading-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+            animation: loading-animation 2s ease-in-out infinite;
+        }
+
+        @keyframes loading-animation {
+            0% {
+                width: 0%;
+            }
+            50% {
+                width: 70%;
+            }
+            100% {
+                width: 100%;
+            }
+        }
+
+        .loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px 40px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            display: none;
+            z-index: 1000;
+        }
+
+        .loading-indicator.active {
+            display: block;
+        }
+
+        .loading-indicator .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-indicator p {
+            margin: 0;
+            color: #333;
+            font-size: 14px;
+            text-align: center;
+        }
+
         .info-box {
             background: rgba(255, 255, 255, 0.95);
             padding: 15px 20px;
@@ -150,6 +225,11 @@
     </style>
 </head>
 <body>
+    <!-- Loading bar at top of page -->
+    <div class="loading-bar-container" id="loadingBarContainer">
+        <div class="loading-bar" id="loadingBar"></div>
+    </div>
+
     <div class="header">
         <h1>🌐 School Network Proxy</h1>
         <div class="url-bar">
@@ -186,12 +266,42 @@
                 <span class="feature-tag">✓ Access Any Website</span>
             </div>
         </div>
-        <iframe id="proxyFrame" src="" title="Proxy Content"></iframe>
+        <div style="position: relative; flex: 1;">
+            <div class="loading-indicator" id="loadingIndicator">
+                <div class="spinner"></div>
+                <p>Loading content...</p>
+            </div>
+            <iframe id="proxyFrame" src="" title="Proxy Content"></iframe>
+        </div>
     </div>
 
     <script>
         const urlInput = document.getElementById('urlInput');
         const proxyFrame = document.getElementById('proxyFrame');
+        const loadingBarContainer = document.getElementById('loadingBarContainer');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
+        // Show loading indicators
+        function showLoading() {
+            loadingBarContainer.classList.add('active');
+            loadingIndicator.classList.add('active');
+        }
+
+        // Hide loading indicators
+        function hideLoading() {
+            loadingBarContainer.classList.remove('active');
+            loadingIndicator.classList.remove('active');
+        }
+
+        // Listen for iframe load events
+        proxyFrame.addEventListener('load', function() {
+            hideLoading();
+        });
+
+        // Listen for iframe error events
+        proxyFrame.addEventListener('error', function() {
+            hideLoading();
+        });
 
         // Load URL on Enter key
         urlInput.addEventListener('keypress', function(event) {
@@ -277,6 +387,9 @@
                 return;
             }
             
+            // Show loading indicators
+            showLoading();
+            
             // Use the /search endpoint
             const searchUrl = `/search?q=${encodeURIComponent(query)}`;
             
@@ -285,6 +398,9 @@
         }
 
         function loadThroughProxy(url) {
+            // Show loading indicators
+            showLoading();
+            
             // Use fetch endpoint for better compatibility
             const proxyUrl = `/fetch?url=${encodeURIComponent(url)}`;
             

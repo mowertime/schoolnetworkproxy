@@ -12,7 +12,8 @@ A powerful web proxy solution designed to bypass school endpoint and DNS securit
 - **📺 Access YouTube** - Stream videos and access content without restrictions
 - **🌍 Access Any Website** - Browse any website through the proxy interface
 - **🎨 User-Friendly Interface** - Clean, modern UI with quick access buttons
-- **🚀 Fast & Lightweight** - Built on Express.js for optimal performance
+- **⚡ Loading Indicators** - Visual feedback with loading bar and spinner to show content loading status
+- **🚀 Fast & Lightweight** - Built on Express.js with compression for optimal performance
 
 ## How It Works 🔧
 
@@ -117,8 +118,14 @@ For production deployment, consider:
 
 - **Express.js** - Web server framework
 - **http-proxy-middleware** - HTTP/HTTPS proxy functionality
-- **node-fetch** - Fetch API for server-side requests
+- **compression** - Gzip/deflate compression for faster response times
 - **CORS** - Cross-Origin Resource Sharing support
+
+### Performance Optimizations
+
+- **Compression middleware** - Reduces response size by up to 70%
+- **Static file caching** - 1-hour cache for static assets with ETags
+- **Loading indicators** - Visual feedback for better user experience
 
 ### Security Features
 

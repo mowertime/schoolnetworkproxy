@@ -1,6 +1,7 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
+const compression = require('compression');
 const path = require('path');
 
 const app = express();
@@ -9,11 +10,17 @@ const PORT = process.env.PORT || 3000;
 // Common User-Agent string to mimic legitimate browser traffic
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
 
+// Enable compression for faster response times
+app.use(compression());
+
 // Enable CORS for all routes
 app.use(cors());
 
-// Serve static files (HTML interface)
-app.use(express.static('public'));
+// Serve static files (HTML interface) with caching
+app.use(express.static('public', {
+  maxAge: '1h', // Cache static files for 1 hour
+  etag: true
+}));
 
 // Main page - redirect to proxy interface
 app.get('/', (req, res) => {
