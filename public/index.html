@@ -206,10 +206,8 @@
                 return;
             }
 
-            // Add protocol if missing
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                url = 'https://' + url;
-            }
+            // Normalize the URL to handle various incomplete formats
+            url = normalizeUrl(url);
 
             // Validate URL
             try {
@@ -221,6 +219,41 @@
 
             // Load through fetch endpoint to avoid iframe restrictions
             loadThroughProxy(url);
+        }
+
+        function normalizeUrl(url) {
+            // Remove leading/trailing whitespace and slashes
+            url = url.trim().replace(/^\/+|\/+$/g, '');
+            
+            // Handle protocol variations
+            url = url.replace(/^(http|https):\/*/i, function(match, protocol) {
+                return protocol.toLowerCase() + '://';
+            });
+            
+            // Add protocol if missing
+            if (!url.match(/^https?:\/\//i)) {
+                // Check if it looks like a simple domain without extension
+                // e.g., "youtube" should become "youtube.com"
+                if (!url.includes('.') && !url.includes(':')) {
+                    // Common sites shorthand
+                    const commonSites = {
+                        'youtube': 'youtube.com',
+                        'google': 'google.com',
+                        'wikipedia': 'wikipedia.org',
+                        'github': 'github.com',
+                        'facebook': 'facebook.com',
+                        'twitter': 'twitter.com',
+                        'reddit': 'reddit.com'
+                    };
+                    url = commonSites[url.toLowerCase()] || url + '.com';
+                }
+                url = 'https://' + url;
+            }
+            
+            // Ensure proper domain format
+            url = url.replace(/([^:])\/\/+/g, '$1/');
+            
+            return url;
         }
 
         function loadSite(url) {
