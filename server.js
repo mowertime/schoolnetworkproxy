@@ -64,6 +64,50 @@ app.use('/proxy', createProxyMiddleware({
   }
 }));
 
+// Search endpoint - proxies Google search queries
+app.get('/search', async (req, res) => {
+  const query = req.query.q || req.query.query;
+  
+  if (!query) {
+    return res.status(400).json({ error: 'Search query parameter (q or query) is required' });
+  }
+  
+  try {
+    // Build Google search URL
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    
+    const response = await fetch(searchUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+      }
+    });
+    
+    const data = await response.text();
+    
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', '*');
+    
+    // Forward content type
+    const contentType = response.headers.get('content-type');
+    if (contentType) {
+      res.header('Content-Type', contentType);
+    }
+    
+    res.send(data);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to perform search', details: error.message });
+  }
+});
+
 // Catch-all proxy for direct URL access
 app.use('/fetch', async (req, res) => {
   const targetUrl = req.query.url;

@@ -157,12 +157,13 @@
                 <input 
                     type="text" 
                     id="urlInput" 
-                    placeholder="Enter URL (e.g., youtube.com, google.com)..." 
+                    placeholder="Enter URL or search query..." 
                     value="https://www.google.com"
                 />
             </div>
             <div class="quick-links">
                 <button class="quick-link-btn go-btn" onclick="loadUrl()">Go</button>
+                <button class="quick-link-btn" onclick="performSearch()">Search</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.google.com')">Google</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.youtube.com')">YouTube</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.wikipedia.org')">Wikipedia</button>
@@ -175,11 +176,12 @@
             <h2>Welcome to School Network Proxy!</h2>
             <p>
                 This proxy allows you to access websites that may be blocked by school or network filters. 
-                Enter any URL in the box above and click "Go" to browse through the proxy.
+                Enter any URL in the box above and click "Go" to browse through the proxy, or click "Search" to search the web.
             </p>
             <div class="features">
                 <span class="feature-tag">✓ Bypass DNS Blocks</span>
                 <span class="feature-tag">✓ Avoid Endpoint Security</span>
+                <span class="feature-tag">✓ Web Search</span>
                 <span class="feature-tag">✓ Access YouTube</span>
                 <span class="feature-tag">✓ Access Any Website</span>
             </div>
@@ -265,6 +267,21 @@
         function loadSite(url) {
             urlInput.value = url;
             loadThroughProxy(url);
+        }
+
+        function performSearch() {
+            const query = urlInput.value.trim();
+            
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+            
+            // Use the /search endpoint
+            const searchUrl = `/search?q=${encodeURIComponent(query)}`;
+            
+            // Load search results in iframe
+            proxyFrame.src = searchUrl;
         }
 
         function loadThroughProxy(url) {

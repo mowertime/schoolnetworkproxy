@@ -8,6 +8,7 @@ A powerful web proxy solution designed to bypass school endpoint and DNS securit
 
 - **🔓 Bypass DNS Blocks** - Routes traffic through the proxy server to avoid DNS-based filtering
 - **🛡️ Avoid Endpoint Security** - Removes security headers and mimics legitimate browser traffic
+- **🔍 Web Search** - Built-in Google search functionality through the proxy
 - **📺 Access YouTube** - Stream videos and access content without restrictions
 - **🌍 Access Any Website** - Browse any website through the proxy interface
 - **🎨 User-Friendly Interface** - Clean, modern UI with quick access buttons
@@ -61,11 +62,31 @@ http://localhost:3000
 ### Web Interface
 
 1. **Enter a URL**: Type any website URL in the input box (e.g., `youtube.com`, `www.google.com`)
-2. **Quick Access**: Use the quick link buttons for popular sites:
+2. **Search the Web**: Enter a search query and click the "Search" button to search through Google
+3. **Quick Access**: Use the quick link buttons for popular sites:
    - Google
    - YouTube
    - Wikipedia
-3. **Browse**: The content loads through the proxy, bypassing restrictions
+4. **Browse**: The content loads through the proxy, bypassing restrictions
+
+### API Endpoints
+
+The proxy provides several endpoints for programmatic access:
+
+- **`/search?q=<query>`** - Search Google through the proxy
+  ```bash
+  curl "http://localhost:3000/search?q=nodejs+tutorial"
+  ```
+
+- **`/fetch?url=<url>`** - Fetch any URL through the proxy
+  ```bash
+  curl "http://localhost:3000/fetch?url=https://example.com"
+  ```
+
+- **`/proxy?url=<url>`** - Dynamic proxy routing
+  ```bash
+  curl "http://localhost:3000/proxy?url=https://github.com"
+  ```
 
 ### Default Behavior
 
