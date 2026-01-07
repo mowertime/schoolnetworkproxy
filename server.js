@@ -116,8 +116,7 @@ app.get('/search', async (req, res) => {
         'DNT': '1',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1'
-      },
-      agent: httpsAgent
+      }
     });
     
     // Set CORS headers
@@ -131,26 +130,44 @@ app.get('/search', async (req, res) => {
       res.header('Content-Type', contentType);
     }
     
-    // Stream the response for better performance
+    // Forward status code
+    res.status(response.status);
+    
+    // Stream the response using Node.js streams
     if (response.body) {
-      response.body.pipeTo(new WritableStream({
-        write(chunk) {
-          res.write(chunk);
-        },
-        close() {
-          res.end();
-        },
-        abort(err) {
-          res.status(500).json({ error: 'Stream aborted', details: err.message });
+      // Convert Web ReadableStream to Node.js Readable stream
+      const reader = response.body.getReader();
+      
+      const pump = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              res.end();
+              break;
+            }
+            if (!res.write(value)) {
+              // Backpressure: wait for drain event
+              await new Promise(resolve => res.once('drain', resolve));
+            }
+          }
+        } catch (error) {
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Stream error', details: error.message });
+          }
         }
-      }));
+      };
+      
+      pump();
     } else {
       // Fallback for environments without streaming support
       const data = await response.text();
       res.send(data);
     }
   } catch (error) {
-    res.status(500).json({ error: 'Failed to perform search', details: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to perform search', details: error.message });
+    }
   }
 });
 
@@ -163,17 +180,13 @@ app.use('/fetch', async (req, res) => {
   }
   
   try {
-    const urlObj = new URL(targetUrl);
-    const agent = urlObj.protocol === 'https:' ? httpsAgent : httpAgent;
-    
     const response = await fetch(targetUrl, {
       method: req.method,
       headers: {
         'User-Agent': USER_AGENT,
         'Accept': '*/*',
         'Connection': 'keep-alive'
-      },
-      agent: agent
+      }
     });
     
     // Set CORS headers
@@ -196,21 +209,32 @@ app.use('/fetch', async (req, res) => {
       res.header('Content-Length', contentLength);
     }
     
-    // Stream the response for better performance
+    // Stream the response using Node.js streams
     if (response.body) {
-      response.body.pipeTo(new WritableStream({
-        write(chunk) {
-          res.write(chunk);
-        },
-        close() {
-          res.end();
-        },
-        abort(err) {
+      // Convert Web ReadableStream to Node.js Readable stream
+      const reader = response.body.getReader();
+      
+      const pump = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              res.end();
+              break;
+            }
+            if (!res.write(value)) {
+              // Backpressure: wait for drain event
+              await new Promise(resolve => res.once('drain', resolve));
+            }
+          }
+        } catch (error) {
           if (!res.headersSent) {
-            res.status(500).json({ error: 'Stream aborted', details: err.message });
+            res.status(500).json({ error: 'Stream error', details: error.message });
           }
         }
-      }));
+      };
+      
+      pump();
     } else {
       // Fallback for environments without streaming support
       const data = await response.text();
