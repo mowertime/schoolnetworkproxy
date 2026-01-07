@@ -286,8 +286,8 @@
         const loadingIndicator = document.getElementById('loadingIndicator');
         
         // Loading configuration constants
-        const LOADING_TIMEOUT = 10000; // 10 seconds fallback timeout
-        const RENDER_DELAY = 300; // 300ms delay for content rendering
+        const LOADING_TIMEOUT = 15000; // 15 seconds fallback timeout (increased for slower connections)
+        const RENDER_DELAY = 100; // 100ms delay for content rendering (reduced from 300ms)
         
         // Track the current timeout
         let loadingTimeout = null;

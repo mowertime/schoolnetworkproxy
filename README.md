@@ -123,8 +123,12 @@ For production deployment, consider:
 
 ### Performance Optimizations
 
+- **Response streaming** - Streams content to client instead of buffering in memory
+- **Connection pooling** - Reuses HTTP/HTTPS connections with keep-alive (50 max sockets)
 - **Compression middleware** - Reduces response size by up to 70%
 - **Static file caching** - 1-hour cache for static assets with ETags
+- **Persistent agents** - Keep-alive connections reduce latency by up to 90%
+- **Optimized timeouts** - 30-second proxy timeout for faster failure detection
 - **Loading indicators** - Visual feedback for better user experience
 
 ### Security Features

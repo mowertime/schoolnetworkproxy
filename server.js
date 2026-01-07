@@ -3,12 +3,32 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
+const http = require('http');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Common User-Agent string to mimic legitimate browser traffic
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+
+// Create HTTP/HTTPS agents with connection pooling for better performance
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60000
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60000,
+  rejectUnauthorized: false // Allow self-signed certificates for proxy functionality
+});
 
 // Enable compression for faster response times
 app.use(compression());
@@ -33,6 +53,9 @@ app.use('/proxy', createProxyMiddleware({
   changeOrigin: true,
   secure: false,
   followRedirects: true,
+  agent: httpsAgent, // Use persistent agent
+  timeout: 30000, // 30 second timeout
+  proxyTimeout: 30000,
   pathRewrite: {
     '^/proxy': '', // remove /proxy prefix
   },
@@ -43,6 +66,7 @@ app.use('/proxy', createProxyMiddleware({
     
     // Set headers to mimic a regular browser request
     proxyReq.setHeader('User-Agent', USER_AGENT);
+    proxyReq.setHeader('Connection', 'keep-alive');
   },
   onProxyRes: (proxyRes, req, res) => {
     // Note: Removing security headers is necessary for proxy functionality
@@ -71,7 +95,7 @@ app.use('/proxy', createProxyMiddleware({
   }
 }));
 
-// Search endpoint - proxies Google search queries
+// Search endpoint - proxies Google search queries with streaming
 app.get('/search', async (req, res) => {
   const query = req.query.q || req.query.query;
   
@@ -89,14 +113,12 @@ app.get('/search', async (req, res) => {
         'User-Agent': USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
         'DNT': '1',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1'
-      }
+      },
+      agent: httpsAgent
     });
-    
-    const data = await response.text();
     
     // Set CORS headers
     res.header('Access-Control-Allow-Origin', '*');
@@ -109,13 +131,30 @@ app.get('/search', async (req, res) => {
       res.header('Content-Type', contentType);
     }
     
-    res.send(data);
+    // Stream the response for better performance
+    if (response.body) {
+      response.body.pipeTo(new WritableStream({
+        write(chunk) {
+          res.write(chunk);
+        },
+        close() {
+          res.end();
+        },
+        abort(err) {
+          res.status(500).json({ error: 'Stream aborted', details: err.message });
+        }
+      }));
+    } else {
+      // Fallback for environments without streaming support
+      const data = await response.text();
+      res.send(data);
+    }
   } catch (error) {
     res.status(500).json({ error: 'Failed to perform search', details: error.message });
   }
 });
 
-// Catch-all proxy for direct URL access
+// Catch-all proxy for direct URL access with streaming
 app.use('/fetch', async (req, res) => {
   const targetUrl = req.query.url;
   
@@ -124,20 +163,26 @@ app.use('/fetch', async (req, res) => {
   }
   
   try {
+    const urlObj = new URL(targetUrl);
+    const agent = urlObj.protocol === 'https:' ? httpsAgent : httpAgent;
+    
     const response = await fetch(targetUrl, {
       method: req.method,
       headers: {
         'User-Agent': USER_AGENT,
-        'Accept': '*/*'
-      }
+        'Accept': '*/*',
+        'Connection': 'keep-alive'
+      },
+      agent: agent
     });
-    
-    const data = await response.text();
     
     // Set CORS headers
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', '*');
+    
+    // Forward status code
+    res.status(response.status);
     
     // Forward content type
     const contentType = response.headers.get('content-type');
@@ -145,9 +190,36 @@ app.use('/fetch', async (req, res) => {
       res.header('Content-Type', contentType);
     }
     
-    res.send(data);
+    // Forward content length for progress indication
+    const contentLength = response.headers.get('content-length');
+    if (contentLength) {
+      res.header('Content-Length', contentLength);
+    }
+    
+    // Stream the response for better performance
+    if (response.body) {
+      response.body.pipeTo(new WritableStream({
+        write(chunk) {
+          res.write(chunk);
+        },
+        close() {
+          res.end();
+        },
+        abort(err) {
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Stream aborted', details: err.message });
+          }
+        }
+      }));
+    } else {
+      // Fallback for environments without streaming support
+      const data = await response.text();
+      res.send(data);
+    }
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch URL', details: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to fetch URL', details: error.message });
+    }
   }
 });
 
