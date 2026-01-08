@@ -85,12 +85,24 @@
             background: #218838;
         }
 
+        .fullscreen-btn {
+            background: #ff6b6b;
+        }
+
+        .fullscreen-btn:hover {
+            background: #ee5a52;
+        }
+
         .content-area {
             flex: 1;
             display: flex;
             flex-direction: column;
             padding: 20px;
             overflow: hidden;
+        }
+
+        .content-area.fullscreen {
+            padding: 0;
         }
 
         #proxyFrame {
@@ -217,6 +229,23 @@
             flex: 1;
         }
 
+        .iframe-container.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10000;
+            background: white;
+        }
+
+        .iframe-container.fullscreen #proxyFrame {
+            border-radius: 0;
+            box-shadow: none;
+        }
+
         @media (max-width: 768px) {
             .quick-links {
                 flex-wrap: wrap;
@@ -248,6 +277,7 @@
             <div class="quick-links">
                 <button class="quick-link-btn go-btn" onclick="loadUrl()">Go</button>
                 <button class="quick-link-btn" onclick="performSearch()">Search</button>
+                <button class="quick-link-btn fullscreen-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.google.com')">Google</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.youtube.com')">YouTube</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.wikipedia.org')">Wikipedia</button>
@@ -284,6 +314,7 @@
         const proxyFrame = document.getElementById('proxyFrame');
         const loadingBarContainer = document.getElementById('loadingBarContainer');
         const loadingIndicator = document.getElementById('loadingIndicator');
+        const iframeContainer = document.querySelector('.iframe-container');
         
         // Loading configuration constants
         const LOADING_TIMEOUT = 15000; // 15 seconds fallback timeout (increased for slower connections)
@@ -432,6 +463,44 @@
             // Try to load in iframe
             proxyFrame.src = proxyUrl;
         }
+
+        // Toggle fullscreen for iframe
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                // Enter fullscreen
+                if (iframeContainer.requestFullscreen) {
+                    iframeContainer.requestFullscreen();
+                } else if (iframeContainer.webkitRequestFullscreen) { // Safari
+                    iframeContainer.webkitRequestFullscreen();
+                } else if (iframeContainer.msRequestFullscreen) { // IE11
+                    iframeContainer.msRequestFullscreen();
+                }
+                iframeContainer.classList.add('fullscreen');
+            } else {
+                // Exit fullscreen
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) { // Safari
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) { // IE11
+                    document.msExitFullscreen();
+                }
+                iframeContainer.classList.remove('fullscreen');
+            }
+        }
+
+        // Handle fullscreen change events (when user exits fullscreen with ESC key)
+        document.addEventListener('fullscreenchange', function() {
+            if (!document.fullscreenElement) {
+                iframeContainer.classList.remove('fullscreen');
+            }
+        });
+
+        document.addEventListener('webkitfullscreenchange', function() {
+            if (!document.webkitFullscreenElement) {
+                iframeContainer.classList.remove('fullscreen');
+            }
+        });
 
         // Load Google by default on page load
         window.addEventListener('load', function() {
