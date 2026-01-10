@@ -975,19 +975,21 @@ function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host) {
     // Rewrite URLs in HTML but NOT inside script tags
     // Use a more surgical approach - only rewrite in specific tag contexts
     
-    // Rewrite <link> tags for stylesheets
+    // Rewrite <link> tags for stylesheets (including protocol-relative URLs)
     html = html.replace(
-      /<link\b([^>]*?\bhref=)(["'])(https?:\/\/[^"/'][^"']*|\/\/[^"']+|\/[^"']+)\2([^>]*)>/gi,
+      /<link\b([^>]*?\bhref=)(["'])(https?:\/\/[^"/'][^"']*|\/\/[^"']+|\/[^"'\/][^"']*)\2([^>]*)>/gi,
       (match, before, quote, url, after) => {
         try {
           if (url.includes('/p/')) return match;
-          if (url.startsWith('http://') || url.startsWith('https://')) {
+          if (url.startsWith('//')) {
+            // Protocol-relative URL
+            const cleanUrl = url.substring(2); // Remove //
+            const u = new URL('https://' + cleanUrl);
+            return `<link${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('http://') || url.startsWith('https://')) {
             const u = new URL(url);
             return `<link${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
-          } else if (url.startsWith('//')) {
-            const u = new URL('https:' + url);
-            return `<link${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
-          } else if (url.startsWith('/')) {
+          } else if (url.startsWith('/') && !url.startsWith('//')) {
             return `<link${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
           }
         } catch (e) {}
@@ -1031,17 +1033,18 @@ function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host) {
     
     // Rewrite <script> tags src attribute (but not inline scripts)
     html = html.replace(
-      /<script\b([^>]*?\bsrc=)(["'])(https?:\/\/[^"/'][^"']*|\/\/[^"']+|\/[^"']+)\2([^>]*)>/gi,
+      /<script\b([^>]*?\bsrc=)(["'])(https?:\/\/[^"/'][^"']*|\/\/[^"']+|\/[^"'\/][^"']*)\2([^>]*)>/gi,
       (match, before, quote, url, after) => {
         try {
           if (url.includes('/p/')) return match;
-          if (url.startsWith('http://') || url.startsWith('https://')) {
+          if (url.startsWith('//')) {
+            const cleanUrl = url.substring(2);
+            const u = new URL('https://' + cleanUrl);
+            return `<script${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('http://') || url.startsWith('https://')) {
             const u = new URL(url);
             return `<script${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
-          } else if (url.startsWith('//')) {
-            const u = new URL('https:' + url);
-            return `<script${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
-          } else if (url.startsWith('/')) {
+          } else if (url.startsWith('/') && !url.startsWith('//')) {
             return `<script${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
           }
         } catch (e) {}
@@ -1071,36 +1074,13 @@ function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host) {
     // CSS files are rewritten separately via rewriteCssUrls function
     
     // Inject comprehensive script with iframe URL rewriting, fetch/XHR interception, and YouTube support
-    // This MUST run before any other scripts load
     const script = `<script>
 if(navigator.onLine===false)Object.defineProperty(navigator,'onLine',{get:()=>true});
-
-// Set base href to ensure all relative URLs go through proxy
-(function(){
-  // Create base element to handle all relative URLs
-  var base = document.createElement('base');
-  base.href = '/p/${protocol}/${host}/';
-  var firstScript = document.getElementsByTagName('script')[0] || document.head.firstChild;
-  if(firstScript && firstScript.parentNode){
-    firstScript.parentNode.insertBefore(base, firstScript);
-  }
-})();
-
 (function(){
   let rewriteUrl=function(url){
     // Type check - only process strings, return anything else as-is
     if(typeof url !== 'string')return url;
     if(!url||url.includes('/p/'))return url;
-    if(url.startsWith('http')||url.startsWith('//')){
-      try{
-        let u=new URL(url.startsWith('//')?'https:'+url:url);
-        return'/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search+u.hash;
-      }catch{}
-    }else if(url.startsWith('/')){
-      return'/p/${protocol}/${host}'+url;
-    }
-    return url;
-  };
     if(url.startsWith('http')||url.startsWith('//')){
       try{
         let u=new URL(url.startsWith('//')?'https:'+url:url);
@@ -1178,6 +1158,46 @@ if(navigator.onLine===false)Object.defineProperty(navigator,'onLine',{get:()=>tr
         get:function(){return origImgSrcDesc.get.call(this);}
       });
     }
+  }catch(e){}
+  
+  // Aggressive video element interception for YouTube
+  try{
+    let videoProto=HTMLVideoElement.prototype;
+    let origVideoSrcDesc=Object.getOwnPropertyDescriptor(videoProto,'src');
+    if(origVideoSrcDesc&&origVideoSrcDesc.set){
+      Object.defineProperty(videoProto,'src',{
+        set:function(val){
+          console.log('Video src set:',val);
+          return origVideoSrcDesc.set.call(this,rewriteUrl(val));
+        },
+        get:function(){return origVideoSrcDesc.get.call(this);}
+      });
+    }
+  }catch(e){}
+  
+  // Monitor MutationObserver for dynamically added elements
+  try{
+    let observer=new MutationObserver(mutations=>{
+      mutations.forEach(m=>{
+        m.addedNodes.forEach(node=>{
+          if(node.nodeType===1){
+            if(node.tagName==='VIDEO'||node.tagName==='IFRAME'||node.tagName==='IMG'){
+              let src=node.getAttribute('src');
+              if(src&&!src.includes('/p/')){
+                node.setAttribute('src',rewriteUrl(src));
+              }
+            }
+            node.querySelectorAll&&node.querySelectorAll('video,iframe,img').forEach(el=>{
+              let src=el.getAttribute('src');
+              if(src&&!src.includes('/p/')){
+                el.setAttribute('src',rewriteUrl(src));
+              }
+            });
+          }
+        });
+      });
+    });
+    observer.observe(document.documentElement,{childList:true,subtree:true});
   }catch(e){}
 })();
 
