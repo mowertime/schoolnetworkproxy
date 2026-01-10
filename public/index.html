@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>School Network Proxy</title>
+    <!-- Performance optimizations -->
+    <link rel="dns-prefetch" href="//duckduckgo.com">
+    <link rel="dns-prefetch" href="//www.youtube.com">
+    <link rel="preconnect" href="//duckduckgo.com" crossorigin>
     <style>
         * {
             margin: 0;
@@ -271,16 +275,16 @@
                     type="text" 
                     id="urlInput" 
                     placeholder="Enter URL or search query..." 
-                    value="https://www.google.com"
+                    value="https://search.brave.com"
                 />
             </div>
             <div class="quick-links">
                 <button class="quick-link-btn go-btn" onclick="loadUrl()">Go</button>
                 <button class="quick-link-btn" onclick="performSearch()">Search</button>
-                <button class="quick-link-btn fullscreen-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
-                <button class="quick-link-btn" onclick="loadSite('https://www.google.com')">Google</button>
+                <button class="quick-link-btn fullscreen-btn" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+                <button class="quick-link-btn" onclick="loadSite('https://search.brave.com')">Brave</button>
+                <button class="quick-link-btn" onclick="loadSite('https://www.mojeek.com')">Mojeek</button>
                 <button class="quick-link-btn" onclick="loadSite('https://www.youtube.com')">YouTube</button>
-                <button class="quick-link-btn" onclick="loadSite('https://www.wikipedia.org')">Wikipedia</button>
             </div>
         </div>
     </div>
@@ -292,10 +296,13 @@
                 This proxy allows you to access websites that may be blocked by school or network filters. 
                 Enter any URL in the box above and click "Go" to browse through the proxy, or click "Search" to search the web.
             </p>
+            <p style="margin-top: 10px; color: #28a745; font-weight: 500;">
+                ✨ Now using Brave Search & Mojeek - No captchas required!
+            </p>
             <div class="features">
                 <span class="feature-tag">✓ Bypass DNS Blocks</span>
                 <span class="feature-tag">✓ Avoid Endpoint Security</span>
-                <span class="feature-tag">✓ Web Search</span>
+                <span class="feature-tag">✓ No CAPTCHA Search</span>
                 <span class="feature-tag">✓ Access YouTube</span>
                 <span class="feature-tag">✓ Access Any Website</span>
             </div>
@@ -317,8 +324,8 @@
         const iframeContainer = document.querySelector('.iframe-container');
         
         // Loading configuration constants
-        const LOADING_TIMEOUT = 15000; // 15 seconds fallback timeout (increased for slower connections)
-        const RENDER_DELAY = 100; // 100ms delay for content rendering (reduced from 300ms)
+        const LOADING_TIMEOUT = 8000; // 8 seconds fallback timeout (optimized)
+        const RENDER_DELAY = 0; // No delay - render immediately for speed
         
         // Track the current timeout
         let loadingTimeout = null;
@@ -359,10 +366,20 @@
             }, RENDER_DELAY);
         });
 
-        // Load URL on Enter key
+        // Load URL on Enter key - detect if it's a search or URL
         urlInput.addEventListener('keypress', function(event) {
             if (event.key === 'Enter') {
-                loadUrl();
+                const input = urlInput.value.trim();
+                
+                // Check if input looks like a URL (has protocol, dot, or is localhost)
+                const looksLikeUrl = /^(https?:\/\/|localhost|.*\.[a-z]{2,})/i.test(input);
+                
+                if (looksLikeUrl) {
+                    loadUrl();
+                } else {
+                    // Treat as search query
+                    performSearch();
+                }
             }
         });
 
@@ -443,69 +460,96 @@
                 return;
             }
             
-            // Show loading indicators
-            showLoading();
-            
-            // Use the /search endpoint
-            const searchUrl = `/search?q=${encodeURIComponent(query)}`;
-            
-            // Load search results in iframe
-            proxyFrame.src = searchUrl;
+            // Use Brave Search which has no captchas
+            const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+            loadThroughProxy(searchUrl);
         }
 
         function loadThroughProxy(url) {
             // Show loading indicators
             showLoading();
             
-            // Use fetch endpoint for better compatibility
-            const proxyUrl = `/fetch?url=${encodeURIComponent(url)}`;
-            
-            // Try to load in iframe
-            proxyFrame.src = proxyUrl;
+            // Convert URL to path-based format: /p/https/example.com/path
+            try {
+                const urlObj = new URL(url);
+                const protocol = urlObj.protocol.replace(':', '');
+                const host = urlObj.host;
+                const pathAndSearch = urlObj.pathname + urlObj.search + urlObj.hash;
+                const proxyUrl = `/p/${protocol}/${host}${pathAndSearch}`;
+                
+                // Load in iframe
+                proxyFrame.src = proxyUrl;
+            } catch (e) {
+                console.error('Invalid URL:', e);
+                alert('Invalid URL format');
+                hideLoading();
+            }
         }
 
         // Toggle fullscreen for iframe
+        let isFullscreen = false;
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        
         function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                // Enter fullscreen
-                if (iframeContainer.requestFullscreen) {
-                    iframeContainer.requestFullscreen();
-                } else if (iframeContainer.webkitRequestFullscreen) { // Safari
-                    iframeContainer.webkitRequestFullscreen();
-                } else if (iframeContainer.msRequestFullscreen) { // IE11
-                    iframeContainer.msRequestFullscreen();
-                }
-                iframeContainer.classList.add('fullscreen');
+            isFullscreen = !isFullscreen;
+            const header = document.querySelector('.header');
+            const infoBox = document.querySelector('.info-box');
+            const contentArea = document.querySelector('.content-area');
+            const body = document.body;
+            
+            if (isFullscreen) {
+                // Update button text
+                fullscreenBtn.textContent = '⛶ Exit Fullscreen';
+                
+                // Hide header and info box, make iframe fill screen
+                header.style.display = 'none';
+                if (infoBox) infoBox.style.display = 'none';
+                loadingIndicator.style.display = 'none';
+                contentArea.style.padding = '0';
+                body.style.overflow = 'hidden';
+                iframeContainer.style.position = 'fixed';
+                iframeContainer.style.top = '0';
+                iframeContainer.style.left = '0';
+                iframeContainer.style.right = '0';
+                iframeContainer.style.bottom = '0';
+                iframeContainer.style.width = '100vw';
+                iframeContainer.style.height = '100vh';
+                iframeContainer.style.zIndex = '10000';
+                iframeContainer.style.background = 'white';
+                proxyFrame.style.width = '100%';
+                proxyFrame.style.height = '100%';
+                proxyFrame.style.borderRadius = '0';
+                proxyFrame.style.boxShadow = 'none';
             } else {
-                // Exit fullscreen
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                } else if (document.webkitExitFullscreen) { // Safari
-                    document.webkitExitFullscreen();
-                } else if (document.msExitFullscreen) { // IE11
-                    document.msExitFullscreen();
-                }
-                iframeContainer.classList.remove('fullscreen');
+                // Update button text
+                fullscreenBtn.textContent = '⛶ Fullscreen';
+                
+                // Restore header and info box
+                header.style.display = '';
+                if (infoBox) infoBox.style.display = '';
+                loadingIndicator.style.display = '';
+                contentArea.style.padding = '';
+                body.style.overflow = '';
+                iframeContainer.style.position = '';
+                iframeContainer.style.top = '';
+                iframeContainer.style.left = '';
+                iframeContainer.style.right = '';
+                iframeContainer.style.bottom = '';
+                iframeContainer.style.width = '';
+                iframeContainer.style.height = '';
+                iframeContainer.style.zIndex = '';
+                iframeContainer.style.background = '';
+                proxyFrame.style.width = '';
+                proxyFrame.style.height = '';
+                proxyFrame.style.borderRadius = '';
+                proxyFrame.style.boxShadow = '';
             }
         }
-
-        // Handle fullscreen change events (when user exits fullscreen with ESC key)
-        document.addEventListener('fullscreenchange', function() {
-            if (!document.fullscreenElement) {
-                iframeContainer.classList.remove('fullscreen');
-            }
-        });
-
-        document.addEventListener('webkitfullscreenchange', function() {
-            if (!document.webkitFullscreenElement) {
-                iframeContainer.classList.remove('fullscreen');
-            }
-        });
-
-        // Load Google by default on page load
+cp .env.example .env
+        // Load Brave Search by default on page load (no captchas!)
         window.addEventListener('load', function() {
             setTimeout(() => {
-                loadSite('https://www.google.com');
+                loadSite('https://search.brave.com');
             }, 500);
         });
     </script>

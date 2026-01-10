@@ -47,7 +47,13 @@ cd schoolnetworkproxy
 ```bash
 npm install
 ```
+3. (Optional) Configure CAPTCHA bypass for testing:
+```bash
+cp .env.example .env
+# Edit .env and set BYPASS_CAPTCHA=true
+```
 
+**⚠️ CAPTCHA Bypass Warning**: The CAPTCHA bypass feature is intended ONLY for development and testing in controlled environments. Never use this on production servers or to access real websites without permission.
 3. Start the proxy server:
 ```bash
 npm start
@@ -89,9 +95,35 @@ The proxy provides several endpoints for programmatic access:
   curl "http://localhost:3000/proxy?url=https://github.com"
   ```
 
+- **`/captcha/validate`** - Mock CAPTCHA validation (development only)
+  ```bash
+  curl -X POST "http://localhost:3000/captcha/validate"
+  ```
+
+### CAPTCHA Handling in Testing
+
+The proxy includes CAPTCHA bypass capabilities for development/testing:
+
+**Environment Variables:**
+- `BYPASS_CAPTCHA=true` - Enables CAPTCHA element removal and mocking
+- `NODE_ENV=development` - Automatically enables CAPTCHA bypass
+- `CAPTCHA_BYPASS_TOKEN` - Custom token for mock responses
+
+**What it does:**
+- Removes CAPTCHA HTML elements (reCAPTCHA, hCaptcha)
+- Injects mock `grecaptcha` and `hcaptcha` objects
+- Auto-enables submit buttons disabled by CAPTCHAs
+- Provides mock validation endpoint
+
+**⚠️ Important:**
+- Use ONLY in local development or isolated test environments
+- Never enable on public-facing or production servers
+- Bypassing CAPTCHAs on real sites may violate their terms of service
+- This is for testing your proxy functionality, not for circumventing production security
+
 ### Default Behavior
 
-- The proxy opens with Google as the default page
+- The proxy opens with DuckDuckGo as the default page
 - You can change the URL at any time
 - All browsing happens through the proxy server
 
