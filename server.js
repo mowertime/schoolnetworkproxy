@@ -294,6 +294,8 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
     
     // Check if HTML and rewrite URLs
     const isHtml = contentType && contentType.includes('text/html');
+    const isCss = contentType && contentType.includes('css');
+    const isJs = contentType && (contentType.includes('javascript') || contentType.includes('ecmascript'));
     
     // Aggressive caching for static resources to maximize speed
     const isStatic = contentType && (contentType.includes('image/') || contentType.includes('css') || contentType.includes('javascript') || contentType.includes('font'));
@@ -308,6 +310,15 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
       const html = await response.text();
       const rewrittenHtml = rewriteHtmlUrlsPathBasedFast(html, targetUrl, protocol, host);
       res.send(rewrittenHtml);
+    } else if (isCss) {
+      // Rewrite CSS files to fix @import and url() references
+      const css = await response.text();
+      const rewrittenCss = rewriteCssUrls(css, targetUrl, protocol, host);
+      res.send(rewrittenCss);
+    } else if (isJs) {
+      // Stream JavaScript with proper content type
+      const js = await response.text();
+      res.send(js);
     } else if (response.body) {
       // Stream non-HTML content with maximum speed
       const reader = response.body.getReader();
@@ -389,6 +400,94 @@ app.use('/proxy', createProxyMiddleware({
     return 'https://www.google.com';
   }
 }));
+
+// Results endpoint - handles YouTube and other search results pages
+app.get('/results', async (req, res) => {
+  const query = req.query.search_query || req.query.q || req.query.query;
+  
+  if (!query) {
+    // If no query provided, redirect to YouTube search results through proxy
+    const targetUrl = `https://www.youtube.com/results${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
+    const proxyUrl = `/p/https/www.youtube.com/results${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
+    return res.redirect(proxyUrl);
+  }
+  
+  try {
+    // Add human delay for search queries
+    const sessionId = req.headers['x-session-id'] || 'default';
+    await addHumanDelay(sessionId, 'reading');
+    
+    // Generate random IP and user agent
+    const spoofedIP = generateRandomIP();
+    const randomUserAgent = getRandomUserAgent();
+    
+    // Build YouTube search URL with all query parameters
+    const queryString = Object.keys(req.query)
+      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(req.query[key])}`)
+      .join('&');
+    const searchUrl = `https://www.youtube.com/results?${queryString}`;
+    
+    const storedCookies = sessionCookies.get(sessionId) || '';
+    
+    const response = await fetch(searchUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': randomUserAgent,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'X-Forwarded-For': spoofedIP,
+        'X-Real-IP': spoofedIP,
+        'Referer': 'https://www.youtube.com/',
+        'Cookie': storedCookies || req.headers.cookie || ''
+      },
+      agent: httpsAgent
+    });
+    
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', '*');
+    
+    // Handle cookies
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+      const cookieStrings = cookies.map(c => c.split(';')[0]).join('; ');
+      sessionCookies.set(sessionId, cookieStrings);
+      
+      cookies.forEach(cookie => {
+        const modifiedCookie = cookie
+          .replace(/; Secure/gi, '')
+          .replace(/; HttpOnly/gi, '')
+          .replace(/; SameSite=\w+/gi, '; SameSite=None');
+        res.append('Set-Cookie', modifiedCookie);
+      });
+    }
+    
+    // Forward content type
+    const contentType = response.headers.get('content-type');
+    if (contentType) {
+      res.header('Content-Type', contentType);
+    }
+    
+    // Forward status code
+    res.status(response.status);
+    
+    // Get HTML content and rewrite URLs
+    const html = await response.text();
+    const rewrittenHtml = rewriteHtmlUrlsPathBasedFast(html, searchUrl, 'https', 'www.youtube.com');
+    res.send(rewrittenHtml);
+  } catch (error) {
+    console.error('Results error:', error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to load results', details: error.message });
+    }
+  }
+});
 
 // Search endpoint - proxies DuckDuckGo search queries (more proxy-friendly)
 app.get('/search', async (req, res) => {
@@ -668,6 +767,81 @@ function rewriteHtmlUrls(html, baseUrl) {
 }
 
 // Ultra-fast minimal rewriting for large pages
+// CSS URL rewriting function
+function rewriteCssUrls(css, baseUrl, protocol, host) {
+  try {
+    const base = new URL(baseUrl);
+    
+    // Rewrite url() in CSS
+    css = css.replace(
+      /url\s*\(\s*(["']?)([^)"']+)\1\s*\)/gi,
+      (match, quote, url) => {
+        try {
+          // Skip data: urls and already proxied
+          if (url.startsWith('data:') || url.includes('/p/')) return match;
+          
+          // Handle absolute URLs
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const u = new URL(url);
+            return `url(${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote})`;
+          }
+          
+          // Handle protocol-relative URLs
+          if (url.startsWith('//')) {
+            const u = new URL('https:' + url);
+            return `url(${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote})`;
+          }
+          
+          // Handle root-relative URLs
+          if (url.startsWith('/')) {
+            return `url(${quote}/p/${protocol}/${host}${url}${quote})`;
+          }
+          
+          // Handle relative URLs
+          const resolvedUrl = new URL(url, base.href);
+          return `url(${quote}/p/${resolvedUrl.protocol.replace(':', '')}/${resolvedUrl.host}${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}${quote})`;
+        } catch (e) {
+          return match;
+        }
+      }
+    );
+    
+    // Rewrite @import statements
+    css = css.replace(
+      /@import\s+(["'])([^"']+)\1/gi,
+      (match, quote, url) => {
+        try {
+          if (url.includes('/p/')) return match;
+          
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const u = new URL(url);
+            return `@import ${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}`;
+          }
+          
+          if (url.startsWith('//')) {
+            const u = new URL('https:' + url);
+            return `@import ${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}`;
+          }
+          
+          if (url.startsWith('/')) {
+            return `@import ${quote}/p/${protocol}/${host}${url}${quote}`;
+          }
+          
+          const resolvedUrl = new URL(url, base.href);
+          return `@import ${quote}/p/${resolvedUrl.protocol.replace(':', '')}/${resolvedUrl.host}${resolvedUrl.pathname}${resolvedUrl.search}${resolvedUrl.hash}${quote}`;
+        } catch (e) {
+          return match;
+        }
+      }
+    );
+    
+    return css;
+  } catch (e) {
+    console.error('CSS rewriting error:', e);
+    return css;
+  }
+}
+
 function injectPerformanceOptimizations(html, baseUrl, protocol, host) {
   try {
     // Only inject critical navigation script, no URL rewriting for speed
@@ -798,59 +972,265 @@ function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host) {
       }
     }
     
-    // Rewrite ALL URLs including captcha - use a more comprehensive approach
-    // Handle src, href, action, data-src for lazy loading
+    // Rewrite URLs in HTML but NOT inside script tags
+    // Use a more surgical approach - only rewrite in specific tag contexts
+    
+    // Rewrite <link> tags for stylesheets
     html = html.replace(
-      /(href|src|action|data-src)=(["'])(https?:\/\/[^"']+)\2/gi,
-      (m, attr, q, url) => {
+      /<link\b([^>]*?\bhref=)(["'])(https?:\/\/[^"/'][^"']*|\/\/[^"']+|\/[^"']+)\2([^>]*)>/gi,
+      (match, before, quote, url, after) => {
         try {
-          // Skip Google redirects - handle client-side
-          if (url.includes('/url?q=')) return m;
-          const u = new URL(url);
-          return `${attr}=${q}/p/${u.protocol.replace(':','')}/${u.host}${u.pathname}${u.search}${u.hash}${q}`;
-        } catch { return m; }
-      }
-    );
-    
-    // Rewrite root-relative URLs
-    html = html.replace(
-      /(href|src|action|data-src)=(["'])(\/[^"'\/][^"']*)\2/gi,
-      (m, attr, q, path) => {
-        if (path.startsWith('/p/')) return m;
-        return `${attr}=${q}/p/${protocol}/${host}${path}${q}`;
-      }
-    );
-    
-    // Rewrite CSS background-image URLs (for captcha images loaded via CSS)
-    html = html.replace(
-      /background(-image)?:\s*url\((["']?)(https?:\/\/[^)"']+)\2\)/gi,
-      (m, prop, q, url) => {
-        try {
-          const u = new URL(url);
-          return `background${prop||'-image'}: url(${q}/p/${u.protocol.replace(':','')}/${u.host}${u.pathname}${u.search}${u.hash}${q})`;
-        } catch { return m; }
-      }
-    );
-    
-    // Rewrite inline style background URLs
-    html = html.replace(
-      /style=(["'])([^"']*background(-image)?:\s*url\(([^)]+)\)[^"']*)\1/gi,
-      (m, q, styleContent) => {
-        let rewritten = styleContent.replace(
-          /url\((["']?)(https?:\/\/[^)"']+)\1\)/gi,
-          (m2, q2, url) => {
-            try {
-              const u = new URL(url);
-              return `url(${q2}/p/${u.protocol.replace(':','')}/${u.host}${u.pathname}${u.search}${u.hash}${q2})`;
-            } catch { return m2; }
+          if (url.includes('/p/')) return match;
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const u = new URL(url);
+            return `<link${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('//')) {
+            const u = new URL('https:' + url);
+            return `<link${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('/')) {
+            return `<link${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
           }
-        );
-        return `style=${q}${rewritten}${q}`;
+        } catch (e) {}
+        return match;
       }
     );
     
-    // Inject script with iframe URL rewriting support for dynamically loaded captchas
-    const script = `<script>if(navigator.onLine===false)Object.defineProperty(navigator,'onLine',{get:()=>true});(function(){let rewriteUrl=function(url){if(!url||url.includes('/p/'))return url;if(url.startsWith('http')||url.startsWith('//')){try{let u=new URL(url.startsWith('//')?'https:'+url:url);return'/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search+u.hash}catch{}}else if(url.startsWith('/')){return'/p/${protocol}/${host}'+url}return url};let origSetAttribute=Element.prototype.setAttribute;Element.prototype.setAttribute=function(name,value){if((name==='src'||name==='href'||name==='data-src')&&value){value=rewriteUrl(value)}else if(name==='style'&&value){value=value.replace(/url\\((["']?)([^)"']+)\\1\\)/gi,function(m,q,url){return'url('+q+rewriteUrl(url)+q+')'})}return origSetAttribute.call(this,name,value)};let origCreateElement=document.createElement;document.createElement=function(tagName){let el=origCreateElement.call(document,tagName);if(tagName.toLowerCase()==='iframe'||tagName.toLowerCase()==='img'){let origSrcSet=Object.getOwnPropertyDescriptor(tagName.toLowerCase()==='iframe'?HTMLIFrameElement.prototype:HTMLImageElement.prototype,'src').set;Object.defineProperty(el,'src',{set:function(val){return origSrcSet.call(this,rewriteUrl(val))},get:function(){return Object.getOwnPropertyDescriptor(tagName.toLowerCase()==='iframe'?HTMLIFrameElement.prototype:HTMLImageElement.prototype,'src').get.call(this)}})}return el};let origFetch=window.fetch;window.fetch=function(url,opts){if(typeof url==='string'){url=rewriteUrl(url)}return origFetch.call(this,url,opts)}})();document.addEventListener('submit',e=>{let f=e.target;if(f&&f.tagName==='FORM'){e.preventDefault();let a=f.getAttribute('action')||'';let fd=new FormData(f);let params=new URLSearchParams(fd).toString();if(!a||a==='/'||a.startsWith('#')||a.startsWith('?')){let currentPath=location.pathname.match(/\\/p\\/(https?)\\/([\^\\\/]+)(.*?)$/);if(currentPath){let newUrl='/p/'+currentPath[1]+'/'+currentPath[2]+'/'+(a.replace(/^[\\/\\?#]/,'')||'');location.href=newUrl+(params?'?'+params:'');return}}if(!a.includes('/p/')){try{let baseUrl='${protocol}://${host}';let u=new URL(a,baseUrl);let newUrl='/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname;location.href=newUrl+(params?'?'+params:'')}catch(err){f.submit()}}}},true);document.addEventListener('click',e=>{let el=e.target;while(el&&el.tagName!=='A')el=el.parentElement;if(el&&el.href&&!el.href.includes('/p/')){e.preventDefault();try{let u=new URL(el.href);if(u.pathname.includes('/url')&&u.searchParams.get('q')){location.href='/p/'+new URL(u.searchParams.get('q')).protocol.replace(':','')+'/'+new URL(u.searchParams.get('q')).host+new URL(u.searchParams.get('q')).pathname;return}location.href='/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search}catch{}}},true)</script>`;
+    // Rewrite <img> tags
+    html = html.replace(
+      /<img\b([^>]*?\bsrc=)(["'])(https?:\/\/[^"']+|\/[^"']+)\2([^>]*)>/gi,
+      (match, before, quote, url, after) => {
+        try {
+          if (url.includes('/p/')) return match;
+          if (url.startsWith('http')) {
+            const u = new URL(url);
+            return `<img${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('/')) {
+            return `<img${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
+          }
+        } catch (e) {}
+        return match;
+      }
+    );
+    
+    // Rewrite <a> tags
+    html = html.replace(
+      /<a\b([^>]*?\bhref=)(["'])(https?:\/\/[^"']+|\/[^"']+)\2([^>]*)>/gi,
+      (match, before, quote, url, after) => {
+        try {
+          if (url.includes('/p/')) return match;
+          if (url.startsWith('http')) {
+            const u = new URL(url);
+            return `<a${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('/')) {
+            return `<a${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
+          }
+        } catch (e) {}
+        return match;
+      }
+    );
+    
+    // Rewrite <script> tags src attribute (but not inline scripts)
+    html = html.replace(
+      /<script\b([^>]*?\bsrc=)(["'])(https?:\/\/[^"/'][^"']*|\/\/[^"']+|\/[^"']+)\2([^>]*)>/gi,
+      (match, before, quote, url, after) => {
+        try {
+          if (url.includes('/p/')) return match;
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const u = new URL(url);
+            return `<script${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('//')) {
+            const u = new URL('https:' + url);
+            return `<script${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('/')) {
+            return `<script${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
+          }
+        } catch (e) {}
+        return match;
+      }
+    );
+    
+    // Rewrite <video> and <source> tags
+    html = html.replace(
+      /<(video|source)\b([^>]*?\bsrc=)(["'])(https?:\/\/[^"/'][^"']*|\/[^"']+)\3([^>]*)>/gi,
+      (match, tag, before, quote, url, after) => {
+        try {
+          if (url.includes('/p/')) return match;
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            const u = new URL(url);
+            return `<${tag}${before}${quote}/p/${u.protocol.replace(':', '')}/${u.host}${u.pathname}${u.search}${u.hash}${quote}${after}>`;
+          } else if (url.startsWith('/')) {
+            return `<${tag}${before}${quote}/p/${protocol}/${host}${url}${quote}${after}>`;
+          }
+        } catch (e) {}
+        return match;
+      }
+    );
+    
+    // DON'T rewrite CSS background-image or inline styles - they might be in script tags
+    // Client-side interception will handle dynamic content
+    // CSS files are rewritten separately via rewriteCssUrls function
+    
+    // Inject comprehensive script with iframe URL rewriting, fetch/XHR interception, and YouTube support
+    // This MUST run before any other scripts load
+    const script = `<script>
+if(navigator.onLine===false)Object.defineProperty(navigator,'onLine',{get:()=>true});
+
+// Set base href to ensure all relative URLs go through proxy
+(function(){
+  // Create base element to handle all relative URLs
+  var base = document.createElement('base');
+  base.href = '/p/${protocol}/${host}/';
+  var firstScript = document.getElementsByTagName('script')[0] || document.head.firstChild;
+  if(firstScript && firstScript.parentNode){
+    firstScript.parentNode.insertBefore(base, firstScript);
+  }
+})();
+
+(function(){
+  let rewriteUrl=function(url){
+    // Type check - only process strings, return anything else as-is
+    if(typeof url !== 'string')return url;
+    if(!url||url.includes('/p/'))return url;
+    if(url.startsWith('http')||url.startsWith('//')){
+      try{
+        let u=new URL(url.startsWith('//')?'https:'+url:url);
+        return'/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search+u.hash;
+      }catch{}
+    }else if(url.startsWith('/')){
+      return'/p/${protocol}/${host}'+url;
+    }
+    return url;
+  };
+    if(url.startsWith('http')||url.startsWith('//')){
+      try{
+        let u=new URL(url.startsWith('//')?'https:'+url:url);
+        return'/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search+u.hash;
+      }catch{}
+    }else if(url.startsWith('/')){
+      return'/p/${protocol}/${host}'+url;
+    }
+    return url;
+  };
+  
+  // Intercept setAttribute for dynamic content
+  let origSetAttribute=Element.prototype.setAttribute;
+  Element.prototype.setAttribute=function(name,value){
+    if((name==='src'||name==='href'||name==='data-src'||name==='data-thumb')&&value){
+      value=rewriteUrl(value);
+    }else if(name==='style'&&value){
+      value=value.replace(/url\\((["']?)([^)"']+)\\1\\)/gi,function(m,q,url){
+        return'url('+q+rewriteUrl(url)+q+')';
+      });
+    }
+    return origSetAttribute.call(this,name,value);
+  };
+  
+  // Intercept createElement for dynamic iframes/images
+  let origCreateElement=document.createElement;
+  document.createElement=function(tagName){
+    let el=origCreateElement.call(document,tagName);
+    let tag=tagName.toLowerCase();
+    if(tag==='iframe'||tag==='img'||tag==='video'||tag==='audio'||tag==='source'){
+      let proto=tag==='iframe'?HTMLIFrameElement.prototype:
+                tag==='img'?HTMLImageElement.prototype:
+                tag==='video'?HTMLVideoElement.prototype:
+                tag==='audio'?HTMLAudioElement.prototype:
+                HTMLSourceElement.prototype;
+      let origSrcDesc=Object.getOwnPropertyDescriptor(proto,'src');
+      if(origSrcDesc&&origSrcDesc.set){
+        Object.defineProperty(el,'src',{
+          set:function(val){return origSrcDesc.set.call(this,rewriteUrl(val));},
+          get:function(){return origSrcDesc.get.call(this);}
+        });
+      }
+    }
+    return el;
+  };
+  
+  // Intercept fetch API for AJAX requests (critical for YouTube)
+  let origFetch=window.fetch;
+  window.fetch=function(url,opts){
+    if(typeof url==='string'){
+      url=rewriteUrl(url);
+    }else if(url instanceof Request){
+      let newUrl=rewriteUrl(url.url);
+      url=new Request(newUrl,url);
+    }
+    return origFetch.call(this,url,opts);
+  };
+  
+  // Intercept XMLHttpRequest for older AJAX (some YouTube features still use this)
+  let origXHROpen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(method,url,...args){
+    if(typeof url==='string'){
+      url=rewriteUrl(url);
+    }
+    return origXHROpen.call(this,method,url,...args);
+  };
+  
+  // Intercept property getters/setters for image elements
+  try{
+    let imgProto=Image.prototype;
+    let origImgSrcDesc=Object.getOwnPropertyDescriptor(imgProto,'src');
+    if(origImgSrcDesc&&origImgSrcDesc.set){
+      Object.defineProperty(imgProto,'src',{
+        set:function(val){return origImgSrcDesc.set.call(this,rewriteUrl(val));},
+        get:function(){return origImgSrcDesc.get.call(this);}
+      });
+    }
+  }catch(e){}
+})();
+
+// Form submission handler
+document.addEventListener('submit',e=>{
+  let f=e.target;
+  if(f&&f.tagName==='FORM'){
+    e.preventDefault();
+    let a=f.getAttribute('action')||'';
+    let fd=new FormData(f);
+    let params=new URLSearchParams(fd).toString();
+    if(!a||a==='/'||a.startsWith('#')||a.startsWith('?')){
+      let currentPath=location.pathname.match(/\\/p\\/(https?)\\/([\^\\\/]+)(.*?)$/);
+      if(currentPath){
+        let newUrl='/p/'+currentPath[1]+'/'+currentPath[2]+'/'+(a.replace(/^[\\/\\?#]/,'')||'');
+        location.href=newUrl+(params?'?'+params:'');
+        return;
+      }
+    }
+    if(!a.includes('/p/')){
+      try{
+        let baseUrl='${protocol}://${host}';
+        let u=new URL(a,baseUrl);
+        let newUrl='/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname;
+        location.href=newUrl+(params?'?'+params:'');
+      }catch(err){
+        f.submit();
+      }
+    }
+  }
+},true);
+
+// Click handler for links
+document.addEventListener('click',e=>{
+  let el=e.target;
+  while(el&&el.tagName!=='A')el=el.parentElement;
+  if(el&&el.href&&!el.href.includes('/p/')){
+    e.preventDefault();
+    try{
+      let u=new URL(el.href);
+      if(u.pathname.includes('/url')&&u.searchParams.get('q')){
+        let target=u.searchParams.get('q');
+        if(target.startsWith('http')){
+          let tu=new URL(target);
+          location.href='/p/'+tu.protocol.replace(':','')+'/'+tu.host+tu.pathname+tu.search;
+          return;
+        }
+      }
+      location.href='/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search;
+    }catch{}
+  }
+},true);
+</script>`;
     
     if (html.includes('</head>')) {
       return html.replace('</head>', script + '</head>');
