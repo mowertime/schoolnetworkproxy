@@ -1,6 +1,17 @@
 // Load environment variables from .env file
 require('dotenv').config();
 
+// Polyfill for fetch in Node.js versions < 18
+let fetch;
+try {
+  fetch = globalThis.fetch;
+} catch (e) {
+  fetch = require('node-fetch');
+}
+if (!fetch) {
+  fetch = require('node-fetch');
+}
+
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
@@ -12,14 +23,11 @@ const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuration: CAPTCHA bypass for testing/development (NEVER use in production on real sites)
-const BYPASS_CAPTCHA = process.env.BYPASS_CAPTCHA === 'true' || process.env.NODE_ENV === 'development';
-const CAPTCHA_BYPASS_TOKEN = process.env.CAPTCHA_BYPASS_TOKEN || 'test-token-' + Date.now();
+// CAPTCHA bypass token for mocking CAPTCHA responses
+const CAPTCHA_BYPASS_TOKEN = 'bypass-token-' + Date.now();
 
-console.log(`CAPTCHA Bypass: ${BYPASS_CAPTCHA ? 'ENABLED (Development Mode)' : 'DISABLED'}`);
-if (BYPASS_CAPTCHA) {
-  console.log('⚠️  WARNING: CAPTCHA bypass is active. Use only in development/testing!');
-}
+// Configuration: CAPTCHA bypass is now controlled by client setting, not server-side
+console.log('CAPTCHA Bypass: Controlled by client settings (toggle in web interface)');
 
 // Increase max listeners to prevent warnings with high connection pooling
 require('events').EventEmitter.defaultMaxListeners = 100;
@@ -49,18 +57,20 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-// Human-like delay simulation
+// Human-like delay simulation - optimized for games and fast loading
 function getHumanDelay(type = 'normal') {
   switch(type) {
+    case 'game': // Minimal delay for games - ultra fast
+      return Math.floor(Math.random() * 10) + 0; // 0-10ms
     case 'click': // Quick click delay
-      return Math.floor(Math.random() * 100) + 50; // 50-150ms
+      return Math.floor(Math.random() * 20) + 5; // 5-25ms
     case 'typing': // Typing between characters
-      return Math.floor(Math.random() * 150) + 50; // 50-200ms
+      return Math.floor(Math.random() * 30) + 10; // 10-40ms
     case 'reading': // Reading delay before navigation
-      return Math.floor(Math.random() * 1000) + 500; // 500-1500ms
-    case 'normal': // Normal page load delay
+      return Math.floor(Math.random() * 200) + 100; // 100-300ms
+    case 'normal': // Normal page load delay - ultra optimized
     default:
-      return Math.floor(Math.random() * 300) + 100; // 100-400ms
+      return Math.floor(Math.random() * 50) + 20; // 20-70ms (heavily reduced)
   }
 }
 
@@ -72,8 +82,9 @@ async function addHumanDelay(sessionId, delayType = 'normal') {
   const lastTime = lastRequestTimes.get(sessionId) || 0;
   const timeSinceLastRequest = now - lastTime;
   
-  // If requests are too fast (< 50ms apart), add delay
-  if (timeSinceLastRequest < 50) {
+  // If requests are too fast (< 5ms apart for games, 20ms for others), add minimal delay
+  const threshold = delayType === 'game' ? 5 : 20;
+  if (timeSinceLastRequest < threshold) {
     const delay = getHumanDelay(delayType);
     await new Promise(resolve => setTimeout(resolve, delay));
   }
@@ -87,25 +98,28 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // Create HTTP/HTTPS agents with aggressive connection pooling for maximum speed
 const httpAgent = new http.Agent({
   keepAlive: true,
-  keepAliveMsecs: 60000, // Keep connections alive longer
-  maxSockets: Infinity, // No limit on concurrent connections
-  maxFreeSockets: 256, // Keep many free sockets ready
-  timeout: 30000, // Shorter timeout for faster failures
-  scheduling: 'lifo' // Last-in-first-out for hot connections
+  keepAliveMsecs: 20000,
+  maxSockets: Infinity,
+  maxFreeSockets: 256,
+  timeout: 20000, // Reasonable timeout
+  scheduling: 'lifo'
 });
 
 const httpsAgent = new https.Agent({
   keepAlive: true,
-  keepAliveMsecs: 60000,
-  maxSockets: Infinity, // No limit on concurrent connections
+  keepAliveMsecs: 20000,
+  maxSockets: Infinity,
   maxFreeSockets: 256,
-  timeout: 30000,
-  rejectUnauthorized: false, // Allow self-signed certificates for proxy functionality
+  timeout: 20000, // Reasonable timeout
+  rejectUnauthorized: false,
   scheduling: 'lifo'
 });
 
-// Enable compression for faster response times
-app.use(compression());
+// Enable compression for faster response times - optimized settings
+app.use(compression({
+  level: 6, // Balanced compression level
+  threshold: 1024 // Only compress responses larger than 1KB
+}));
 
 // Enable CORS for all routes
 app.use(cors());
@@ -123,14 +137,17 @@ app.get('/', (req, res) => {
 
 // Mock CAPTCHA validation endpoint for testing/development
 app.post('/captcha/validate', (req, res) => {
-  if (BYPASS_CAPTCHA) {
-    console.log('CAPTCHA validation bypassed (development mode)');
+  // Check if CAPTCHA bypass is enabled in the request
+  const bypassCaptcha = req.query.bypassCaptcha === 'true' || req.body.bypassCaptcha === 'true';
+  
+  if (bypassCaptcha) {
+    console.log('CAPTCHA validation bypassed (user enabled)');
     return res.json({
       success: true,
       challenge_ts: new Date().toISOString(),
       hostname: req.hostname,
       bypass: true,
-      message: 'CAPTCHA bypassed for development/testing'
+      message: 'CAPTCHA bypassed per user settings'
     });
   }
   return res.status(400).json({
@@ -174,9 +191,21 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
     return res.status(400).json({ error: 'Invalid proxy path format. Use /p/https/example.com/path' });
   }
   
+  // Check if CAPTCHA bypass is enabled via cookie
+  const cookies = req.headers.cookie ? req.headers.cookie.split(';').map(c => c.trim()) : [];
+  const bypassCaptchaCookie = cookies.find(c => c.startsWith('bypassCaptcha='));
+  const bypassCaptcha = bypassCaptchaCookie && bypassCaptchaCookie.includes('true');
+  
+  // Separate path and query string first
+  const [pathOnly, queryString] = fullPath.split('?');
+  
+  console.log(`[URL Parse] fullPath: ${fullPath}`);
+  console.log(`[URL Parse] pathOnly: ${pathOnly}, queryString: ${queryString}`);
+  
   // Parse: protocol/host/path
-  const parts = fullPath.split('/');
+  const parts = pathOnly.split('/');
   if (parts.length < 2) {
+    console.log(`[URL Parse] ERROR: Not enough parts. Parts:`, parts);
     return res.status(400).json({ error: 'Invalid proxy path format. Use /p/https/example.com/path' });
   }
   
@@ -184,7 +213,8 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
   const host = parts[1];
   const pathParts = parts.slice(2);
   const path = pathParts.length > 0 ? '/' + pathParts.join('/') : '';
-  const queryString = req.url.split('?')[1] || '';
+  
+  console.log(`[URL Parse] protocol: ${protocol}, host: ${host}, path: ${path}`);
   
   // Construct the full URL
   const targetUrl = `${protocol}://${host}${path}${queryString ? '?' + queryString : ''}`;
@@ -194,8 +224,18 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
     const sessionId = req.headers['x-session-id'] || 'default';
     const storedCookies = sessionCookies.get(sessionId) || '';
     
-    // Add human-like delay to avoid detection
-    await addHumanDelay(sessionId, 'normal');
+    console.log(`[Proxy] Request: ${targetUrl} - Status will be: ?`);
+    
+    // Detect if this is a game-related request for optimization (only check file extensions, not domain patterns)
+    const isGameAsset = /\.(wasm|unity3d|unitywebgl|bundle|js|png|jpg|jpeg|gif|webp|mp4|webm|ogg|wav|m4a|aac)$/i.test(targetUrl);
+    
+    // Add human-like delay to avoid detection (skip for game assets)
+    if (!isGameAsset) {
+      await addHumanDelay(sessionId, 'normal');
+    } else {
+      // Use ultra-fast game mode for game assets
+      await addHumanDelay(sessionId, 'game');
+    }
     
     // Generate random IP for this request
     const spoofedIP = generateRandomIP();
@@ -208,8 +248,8 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
         'User-Agent': randomUserAgent,
         'Accept': req.headers.accept || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'max-age=0',
+        'Accept-Language': 'en-US,en;q=0.9', // Force English
+        'Cache-Control': isGameAsset ? 'max-age=31536000' : 'max-age=0', // 1 year for game assets, no cache for others
         'Connection': 'keep-alive',
         'DNT': '1',
         'Sec-Fetch-Dest': 'document',
@@ -224,7 +264,9 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
         'sec-ch-ua-platform': '"Windows"'
       },
       // Use appropriate agent for HTTP/HTTPS
-      agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent
+      agent: targetUrl.startsWith('https') ? httpsAgent : httpAgent,
+      // Timeout optimizations - reasonable values for reliability
+      timeout: isGameAsset ? 15000 : 20000,
     };
     
     // Add stored session cookies
@@ -252,6 +294,8 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
     }
     
     const response = await fetch(targetUrl, fetchOptions);
+    
+    console.log(`[Proxy] Response: ${targetUrl} - Status: ${response.status}`);
     
     // Set CORS headers to allow cross-origin requests
     res.header('Access-Control-Allow-Origin', '*');
@@ -297,10 +341,21 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
     const isCss = contentType && contentType.includes('css');
     const isJs = contentType && (contentType.includes('javascript') || contentType.includes('ecmascript'));
     
-    // Aggressive caching for static resources to maximize speed
-    const isStatic = contentType && (contentType.includes('image/') || contentType.includes('css') || contentType.includes('javascript') || contentType.includes('font'));
-    if (isStatic) {
-      res.header('Cache-Control', 'public, max-age=86400, immutable'); // 24 hour cache
+    // Detect media and binary content
+    const isImage = contentType && contentType.includes('image/');
+    const isVideo = contentType && contentType.includes('video/');
+    const isAudio = contentType && contentType.includes('audio/');
+    const isBinary = isImage || isVideo || isAudio;
+    const isStatic = isBinary || (contentType && (contentType.includes('css') || contentType.includes('javascript') || contentType.includes('font')));
+    
+    if (isGameAsset || isBinary) {
+      // Ultra-aggressive caching for game/media assets
+      res.header('Cache-Control', 'public, max-age=31536000, immutable');
+      res.header('X-Content-Type-Options', 'nosniff');
+      // Add expires header for older browsers
+      res.header('Expires', new Date(Date.now() + 31536000000).toUTCString());
+    } else if (isStatic) {
+      res.header('Cache-Control', 'public, max-age=86400, immutable'); // 24 hour cache for other static
     } else if (isHtml) {
       res.header('Cache-Control', 'public, max-age=300'); // 5 minute cache for HTML
     }
@@ -308,7 +363,7 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
     if (isHtml) {
       // Always rewrite ALL HTML pages to ensure captcha iframes work
       const html = await response.text();
-      const rewrittenHtml = rewriteHtmlUrlsPathBasedFast(html, targetUrl, protocol, host);
+      const rewrittenHtml = rewriteHtmlUrlsPathBasedFast(html, targetUrl, protocol, host, bypassCaptcha);
       res.send(rewrittenHtml);
     } else if (isCss) {
       // Rewrite CSS files to fix @import and url() references
@@ -324,13 +379,17 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
       const reader = response.body.getReader();
       const pump = async () => {
         try {
+          // Use massive chunks for faster streaming (important for large game files)
+          const chunkSize = (isGameAsset || isBinary) ? 262144 : 65536; // 256KB for games/media, 64KB for others
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
               res.end();
               break;
             }
+            // Write chunk without waiting for drain on fast connections
             if (!res.write(value)) {
+              // Only wait if buffer is full
               await new Promise(resolve => res.once('drain', resolve));
             }
           }
@@ -346,7 +405,8 @@ app.all(/^\/p\/(.*)/, async (req, res) => {
       res.send(data);
     }
   } catch (error) {
-    console.error('Proxy error:', error.message);
+    console.error(`[Proxy Error] URL: ${targetUrl}`);
+    console.error(`[Proxy Error] Message: ${error.message}`);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to fetch', details: error.message });
     }
@@ -845,7 +905,7 @@ function rewriteCssUrls(css, baseUrl, protocol, host) {
 function injectPerformanceOptimizations(html, baseUrl, protocol, host) {
   try {
     // Only inject critical navigation script, no URL rewriting for speed
-    const script = `<script>window.p='${protocol}',window.h='${host}';if(navigator.onLine===false)Object.defineProperty(navigator,'onLine',{get:()=>true});document.addEventListener('click',e=>{let el=e.target;while(el&&el.tagName!=='A')el=el.parentElement;if(el&&el.href&&!el.href.includes('/p/')){e.preventDefault();try{let u=new URL(el.href);location.href='/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search+u.hash}catch{}}},true)</script>`;
+    const script = `<script>window.p='${protocol}',window.h='${host}';if(navigator.onLine===false)Object.defineProperty(navigator,'onLine',{get:()=>true});document.addEventListener('click',e=>{let el=e.target;while(el&&el.tagName!=='A')el=el.parentElement;if(el&&el.href&&!el.href.includes('/p/')){e.preventDefault();try{let origHref=el.getAttribute('href')||el.href;let u;if(origHref.startsWith('//')){u=new URL('https:'+origHref)}else if(origHref.startsWith('/')){u=new URL(el.href)}else if(origHref.match(/^https?:/)){u=new URL(origHref)}else{u=new URL(el.href)}location.href='/p/'+u.protocol.replace(':','')+'/'+u.host+u.pathname+u.search+u.hash}catch{}}},true)</script>`;
     
     // Inject at the earliest possible point
     if (html.includes('<head>')) {
@@ -861,7 +921,7 @@ function injectPerformanceOptimizations(html, baseUrl, protocol, host) {
 }
 
 // Fast HTML rewriting for smaller pages
-function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host) {
+function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host, bypassCaptcha = false) {
   try {
     const base = new URL(baseUrl);
     
@@ -869,11 +929,9 @@ function rewriteHtmlUrlsPathBasedFast(html, baseUrl, protocol, host) {
     html = html.replace(/<script[^>]*googlesyndication[^>]*>.*?<\/script>/gi, '');
     html = html.replace(/<script[^>]*doubleclick[^>]*>.*?<\/script>/gi, '');
     
-    // CAPTCHA bypass for development/testing: Remove CAPTCHA elements if enabled
-    // ALWAYS ENABLED for now
-    const bypassEnabled = true; // Force enable for testing
-    if (bypassEnabled) {
-      console.log('🔓 CAPTCHA bypass active - removing CAPTCHA elements from:', baseUrl);
+    // CAPTCHA bypass: Only bypass if user enabled it in settings
+    if (bypassCaptcha) {
+      console.log('🔓 CAPTCHA bypass enabled by user - removing CAPTCHA elements from:', baseUrl);
       
       // Remove ALL CAPTCHA-related elements aggressively
       html = html.replace(/<div[^>]*class=["'][^"']*g-recaptcha[^"']*["'][^>]*>.*?<\/div>/gis, '<!-- captcha removed -->');
