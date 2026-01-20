@@ -118,7 +118,7 @@ const httpsAgent = new https.Agent({
 // Enable compression for faster response times - CrazyGames-inspired optimized settings
 app.use(compression({
   level: 6, // Balanced compression level (CrazyGames uses similar)
-  threshold: 512, // Compress even smaller responses (512 bytes)
+  threshold: 1024, // Compress responses larger than 1KB (optimal threshold)
   filter: (req, res) => {
     // Compress all text-based responses
     if (req.headers['x-no-compression']) {

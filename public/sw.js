@@ -1,7 +1,8 @@
 // Service Worker for School Network Proxy
 // Implements CrazyGames-inspired caching strategies
 
-const CACHE_NAME = 'school-proxy-v1';
+const CACHE_VERSION = Date.now(); // Dynamic cache versioning
+const CACHE_NAME = `school-proxy-v${CACHE_VERSION}`;
 const CACHE_EXPIRY = 3600000; // 1 hour in milliseconds
 
 // Assets to cache immediately
@@ -81,7 +82,7 @@ async function cacheFirst(request) {
     // Check if cache is fresh (< 1 hour old)
     const cacheDate = cached.headers.get('sw-cache-date');
     if (cacheDate) {
-      const age = Date.now() - parseInt(cacheDate);
+      const age = Date.now() - parseInt(cacheDate, 10); // Explicit base 10
       if (age < CACHE_EXPIRY) {
         return cached;
       }
