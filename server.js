@@ -115,19 +115,43 @@ const httpsAgent = new https.Agent({
   scheduling: 'lifo'
 });
 
-// Enable compression for faster response times - optimized settings
+// Enable compression for faster response times - CrazyGames-inspired optimized settings
 app.use(compression({
-  level: 6, // Balanced compression level
-  threshold: 1024 // Only compress responses larger than 1KB
+  level: 6, // Balanced compression level (CrazyGames uses similar)
+  threshold: 512, // Compress even smaller responses (512 bytes)
+  filter: (req, res) => {
+    // Compress all text-based responses
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
 }));
 
 // Enable CORS for all routes
 app.use(cors());
 
-// Serve static files (HTML interface) with caching
+// Serve static files with aggressive caching (CrazyGames technique)
 app.use(express.static('public', {
-  maxAge: '1h', // Cache static files for 1 hour
-  etag: true
+  maxAge: '7d', // Cache static files for 7 days (longer for better performance)
+  etag: true,
+  lastModified: true,
+  immutable: true, // Assets won't change (cache aggressively)
+  setHeaders: (res, path) => {
+    // Service worker gets special treatment
+    if (path.endsWith('sw.js')) {
+      res.setHeader('Cache-Control', 'no-cache'); // Always check for SW updates
+      res.setHeader('Service-Worker-Allowed', '/');
+    }
+    // HTML files should be revalidated
+    else if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+    }
+    // Everything else can be cached aggressively
+    else {
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    }
+  }
 }));
 
 // Main page - redirect to proxy interface
