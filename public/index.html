@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Network Proxy</title>
+    
+    <!-- CrazyGames-inspired performance optimizations -->
+    <!-- DNS prefetch for common domains -->
+    <link rel="dns-prefetch" href="//search.brave.com">
+    <link rel="dns-prefetch" href="//www.mojeek.com">
+    <link rel="dns-prefetch" href="//www.youtube.com">
+    <link rel="dns-prefetch" href="//www.wikipedia.org">
+    
+    <!-- Preconnect to critical resources for faster loading -->
+    <link rel="preconnect" href="//search.brave.com" crossorigin>
+    <link rel="preconnect" href="//www.youtube.com" crossorigin>
+    
+    <!-- Resource hints for faster subsequent navigation -->
+    <link rel="prefetch" href="/fetch" as="fetch" crossorigin>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .url-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .url-input-container {
+            flex: 1;
+            display: flex;
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 25px;
+            overflow: hidden;
+        }
+
+        #urlInput {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            outline: none;
+            font-size: 16px;
+        }
+
+        .quick-links {
+            display: flex;
+            gap: 10px;
+        }
+
+        .quick-link-btn {
+            padding: 12px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .quick-link-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .go-btn {
+            background: #28a745;
+        }
+
+        .go-btn:hover {
+            background: #218838;
+        }
+
+        .fullscreen-btn {
+            background: #ff6b6b;
+        }
+
+        .fullscreen-btn:hover {
+            background: #ee5a52;
+        }
+
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        .content-area.fullscreen {
+            padding: 0;
+        }
+
+        #proxyFrame {
+            flex: 1;
+            border: none;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 100%;
+        }
+
+        /* Loading bar styles */
+        .loading-bar-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            z-index: 9999;
+            display: none;
+        }
+
+        .loading-bar-container.active {
+            display: block;
+        }
+
+        .loading-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #667eea, #764ba2);
+            width: 0%;
+            animation: loading-animation 2s ease-in-out infinite;
+        }
+
+        @keyframes loading-animation {
+            0% {
+                width: 0%;
+            }
+            50% {
+                width: 70%;
+            }
+            100% {
+                width: 100%;
+            }
+        }
+
+        .loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px 40px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            display: none;
+            z-index: 1000;
+        }
+
+        .loading-indicator.active {
+            display: block;
+        }
+
+        .loading-indicator .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-indicator p {
+            margin: 0;
+            color: #333;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .info-box {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .info-box h2 {
+            color: #333;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .features {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .feature-tag {
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .settings-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+
+        .settings-section h3 {
+            color: #333;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .setting-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .setting-item label {
+            cursor: pointer;
+            color: #666;
+            font-size: 14px;
+            margin: 0;
+        }
+
+        .iframe-container {
+            position: relative;
+            flex: 1;
+        }
+
+        .iframe-container.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10000;
+            background: white;
+        }
+
+        .iframe-container.fullscreen #proxyFrame {
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        @media (max-width: 768px) {
+            .quick-links {
+                flex-wrap: wrap;
+            }
+            
+            .header h1 {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading bar at top of page -->
+    <div class="loading-bar-container" id="loadingBarContainer">
+        <div class="loading-bar" id="loadingBar"></div>
+    </div>
+
+    <div class="header">
+        <h1>🌐 School Network Proxy</h1>
+        <div class="url-bar">
+            <div class="url-input-container">
+                <input 
+                    type="text" 
+                    id="urlInput" 
+                    placeholder="Enter URL or search query..." 
+                    value="https://search.brave.com"
+                />
+            </div>
+            <div class="quick-links">
+                <button class="quick-link-btn go-btn" onclick="loadUrl()">Go</button>
+                <button class="quick-link-btn" onclick="performSearch()">Search</button>
+                <button class="quick-link-btn fullscreen-btn" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+                <button class="quick-link-btn" onclick="loadSite('https://search.brave.com')">Brave</button>
+                <button class="quick-link-btn" onclick="loadSite('https://www.mojeek.com')">Mojeek</button>
+                <button class="quick-link-btn" onclick="loadSite('https://www.youtube.com')">YouTube</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="content-area">
+        <div class="info-box">
+            <h2>Welcome to School Network Proxy!</h2>
+            <p>
+                This proxy allows you to access websites that may be blocked by school or network filters. 
+                Enter any URL in the box above and click "Go" to browse through the proxy, or click "Search" to search the web.
+            </p>
+            <p style="margin-top: 10px; color: #28a745; font-weight: 500;">
+                ✨ Now using Brave Search & Mojeek - No captchas required!
+            </p>
+            <div class="features">
+                <span class="feature-tag">✓ Bypass DNS Blocks</span>
+                <span class="feature-tag">✓ Avoid Endpoint Security</span>
+                <span class="feature-tag">✓ No CAPTCHA Search</span>
+                <span class="feature-tag">✓ Access YouTube</span>
+                <span class="feature-tag">✓ Access Any Website</span>
+            </div>
+            <div class="settings-section">
+                <h3>⚙️ Settings</h3>
+                <div class="setting-item">
+                    <input type="checkbox" id="bypassCaptchaToggle" />
+                    <label for="bypassCaptchaToggle">Enable CAPTCHA Bypass (for blocked sites)</label>
+                </div>
+            </div>
+        </div>
+        <div class="iframe-container">
+            <div class="loading-indicator" id="loadingIndicator">
+                <div class="spinner"></div>
+                <p>Loading content...</p>
+            </div>
+            <!-- Lazy loading iframe for better performance (CrazyGames technique) -->
+            <iframe 
+                id="proxyFrame" 
+                src="" 
+                title="Proxy Content"
+                loading="lazy"
+                importance="high"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-modals allow-downloads"
+            ></iframe>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CrazyGames-inspired Performance Optimizations
+        // ============================================
+        
+        // 1. Service Worker Registration for Caching
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then((registration) => {
+                    console.log('[Performance] Service Worker registered:', registration.scope);
+                })
+                .catch((error) => {
+                    console.log('[Performance] Service Worker registration failed:', error);
+                });
+        }
+        
+        // 2. Intersection Observer for Lazy Loading
+        const observerOptions = {
+            root: null,
+            rootMargin: '50px', // Start loading 50px before element enters viewport
+            threshold: 0.01
+        };
+        
+        const lazyLoadObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    const iframe = entry.target;
+                    if (iframe.dataset.src && !iframe.src) {
+                        iframe.src = iframe.dataset.src;
+                        lazyLoadObserver.unobserve(iframe);
+                    }
+                }
+            });
+        }, observerOptions);
+        
+        // 3. Preload critical resources
+        function preloadResource(url, type = 'fetch') {
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.href = url;
+            link.as = type;
+            document.head.appendChild(link);
+        }
+        
+        // Elements
+        const urlInput = document.getElementById('urlInput');
+        const proxyFrame = document.getElementById('proxyFrame');
+        const loadingBarContainer = document.getElementById('loadingBarContainer');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const iframeContainer = document.querySelector('.iframe-container');
+        const bypassCaptchaToggle = document.getElementById('bypassCaptchaToggle');
+        
+        // Load CAPTCHA bypass setting from localStorage
+        function loadSettings() {
+            const bypassCaptchaSetting = localStorage.getItem('bypassCaptcha') === 'true';
+            bypassCaptchaToggle.checked = bypassCaptchaSetting;
+        }
+        
+        // Save CAPTCHA bypass setting to localStorage and cookie
+        bypassCaptchaToggle.addEventListener('change', (e) => {
+            localStorage.setItem('bypassCaptcha', e.target.checked.toString());
+            // Also set as cookie so server can read it
+            document.cookie = 'bypassCaptcha=' + (e.target.checked ? 'true' : 'false') + '; path=/; max-age=' + (365 * 24 * 60 * 60);
+            console.log('CAPTCHA bypass setting:', e.target.checked ? 'ENABLED' : 'DISABLED');
+        });
+        
+        // Load settings when page loads
+        loadSettings();
+        
+        // Loading configuration constants
+        const LOADING_TIMEOUT = 8000; // 8 seconds fallback timeout (optimized)
+        const RENDER_DELAY = 0; // No delay - render immediately for speed
+        
+        // Track the current timeout
+        let loadingTimeout = null;
+
+        // Show loading indicators
+        function showLoading() {
+            loadingBarContainer.classList.add('active');
+            loadingIndicator.classList.add('active');
+            
+            // Clear any existing timeout
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+            }
+            
+            // Auto-hide after timeout as fallback in case load event doesn't fire
+            loadingTimeout = setTimeout(() => {
+                hideLoading();
+            }, LOADING_TIMEOUT);
+        }
+
+        // Hide loading indicators
+        function hideLoading() {
+            loadingBarContainer.classList.remove('active');
+            loadingIndicator.classList.remove('active');
+            
+            // Clear the timeout
+            if (loadingTimeout) {
+                clearTimeout(loadingTimeout);
+                loadingTimeout = null;
+            }
+        }
+
+        // Listen for iframe load events
+        proxyFrame.addEventListener('load', function() {
+            // Small delay to ensure content is rendered
+            setTimeout(() => {
+                hideLoading();
+            }, RENDER_DELAY);
+        });
+
+        // Load URL on Enter key - detect if it's a search or URL
+        urlInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                const input = urlInput.value.trim();
+                
+                // Check if input looks like a URL (has protocol, dot, or is localhost)
+                const looksLikeUrl = /^(https?:\/\/|localhost|.*\.[a-z]{2,})/i.test(input);
+                
+                if (looksLikeUrl) {
+                    loadUrl();
+                } else {
+                    // Treat as search query
+                    performSearch();
+                }
+            }
+        });
+
+        function loadUrl() {
+            let url = urlInput.value.trim();
+            
+            if (!url) {
+                alert('Please enter a URL');
+                return;
+            }
+
+            // Normalize the URL to handle various incomplete formats
+            url = normalizeUrl(url);
+
+            // Validate URL
+            try {
+                new URL(url);
+            } catch (e) {
+                alert('Invalid URL. Please enter a valid web address.');
+                return;
+            }
+
+            // Load through fetch endpoint to avoid iframe restrictions
+            loadThroughProxy(url);
+        }
+
+        function normalizeUrl(url) {
+            // Remove leading/trailing whitespace and slashes
+            url = url.trim().replace(/^\/+|\/+$/g, '');
+            
+            // Handle protocol variations
+            url = url.replace(/^(http|https):\/*/i, function(match, protocol) {
+                return protocol.toLowerCase() + '://';
+            });
+            
+            // Add protocol if missing
+            if (!url.match(/^https?:\/\//i)) {
+                // Don't modify localhost or IP addresses
+                if (url.startsWith('localhost') || url.match(/^\d+\.\d+\.\d+\.\d+(:\d+)?/)) {
+                    url = 'http://' + url;
+                }
+                // Check if it looks like a simple domain without extension
+                // e.g., "youtube" should become "youtube.com"
+                else if (!url.includes('.') && !url.includes(':')) {
+                    // Common sites shorthand
+                    const commonSites = {
+                        'youtube': 'youtube.com',
+                        'google': 'google.com',
+                        'wikipedia': 'wikipedia.org',
+                        'github': 'github.com',
+                        'facebook': 'facebook.com',
+                        'twitter': 'twitter.com',
+                        'reddit': 'reddit.com'
+                    };
+                    url = commonSites[url.toLowerCase()] || url + '.com';
+                    url = 'https://' + url;
+                } else {
+                    url = 'https://' + url;
+                }
+            }
+            
+            // Ensure proper domain format
+            url = url.replace(/([^:])\/\/+/g, '$1/');
+            
+            return url;
+        }
+
+        function loadSite(url) {
+            urlInput.value = url;
+            loadThroughProxy(url);
+        }
+
+        function performSearch() {
+            const query = urlInput.value.trim();
+            
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+            
+            // Use Brave Search which has no captchas
+            const searchUrl = `https://search.brave.com/search?q=${encodeURIComponent(query)}`;
+            loadThroughProxy(searchUrl);
+        }
+
+        function loadThroughProxy(url) {
+            // Show loading indicators
+            showLoading();
+            
+            // Convert URL to path-based format: /p/https/example.com/path
+            try {
+                const urlObj = new URL(url);
+                const protocol = urlObj.protocol.replace(':', '');
+                const host = urlObj.host;
+                const pathAndSearch = urlObj.pathname + urlObj.search + urlObj.hash;
+                const proxyUrl = `/p/${protocol}/${host}${pathAndSearch}`;
+                
+                // Load in iframe
+                proxyFrame.src = proxyUrl;
+            } catch (e) {
+                console.error('Invalid URL:', e);
+                alert('Invalid URL format');
+                hideLoading();
+            }
+        }
+
+        // Toggle fullscreen for iframe
+        let isFullscreen = false;
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        
+        function toggleFullscreen() {
+            isFullscreen = !isFullscreen;
+            const header = document.querySelector('.header');
+            const infoBox = document.querySelector('.info-box');
+            const contentArea = document.querySelector('.content-area');
+            const body = document.body;
+            
+            if (isFullscreen) {
+                // Update button text
+                fullscreenBtn.textContent = '⛶ Exit Fullscreen';
+                
+                // Hide header and info box, make iframe fill screen
+                header.style.display = 'none';
+                if (infoBox) infoBox.style.display = 'none';
+                loadingIndicator.style.display = 'none';
+                contentArea.style.padding = '0';
+                body.style.overflow = 'hidden';
+                iframeContainer.style.position = 'fixed';
+                iframeContainer.style.top = '0';
+                iframeContainer.style.left = '0';
+                iframeContainer.style.right = '0';
+                iframeContainer.style.bottom = '0';
+                iframeContainer.style.width = '100vw';
+                iframeContainer.style.height = '100vh';
+                iframeContainer.style.zIndex = '10000';
+                iframeContainer.style.background = 'white';
+                proxyFrame.style.width = '100%';
+                proxyFrame.style.height = '100%';
+                proxyFrame.style.borderRadius = '0';
+                proxyFrame.style.boxShadow = 'none';
+            } else {
+                // Update button text
+                fullscreenBtn.textContent = '⛶ Fullscreen';
+                
+                // Restore header and info box
+                header.style.display = '';
+                if (infoBox) infoBox.style.display = '';
+                loadingIndicator.style.display = '';
+                contentArea.style.padding = '';
+                body.style.overflow = '';
+                iframeContainer.style.position = '';
+                iframeContainer.style.top = '';
+                iframeContainer.style.left = '';
+                iframeContainer.style.right = '';
+                iframeContainer.style.bottom = '';
+                iframeContainer.style.width = '';
+                iframeContainer.style.height = '';
+                iframeContainer.style.zIndex = '';
+                iframeContainer.style.background = '';
+                proxyFrame.style.width = '';
+                proxyFrame.style.height = '';
+                proxyFrame.style.borderRadius = '';
+                proxyFrame.style.boxShadow = '';
+            }
+        }
+
+        // Load Brave Search by default on page load (no captchas!)
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                loadSite('https://search.brave.com');
+            }, 500);
+        });
+    </script>
+</body>
+</html>
